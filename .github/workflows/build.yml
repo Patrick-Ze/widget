@@ -1,0 +1,74 @@
+name: Build and Package Xunkong Widget
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch: # 允许手动触发
+
+env:
+  # 替换为你的解决方案文件名
+  SOLUTION_NAME: Xunkong.Widget.sln
+  # 替换为你的csproj所在的文件夹名称
+  PROJECT_DIR: Xunkong.Widget
+  # 生成的包输出路径 (通常在项目目录下的 AppPackages)
+  OUTPUT_DIR: Xunkong.Widget\AppPackages
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1.1
+
+    # 移除 Setup NuGet 和 nuget restore，改用 msbuild restore
+    # - name: Setup NuGet
+    #   uses: NuGet/setup-nuget@v1.2
+    
+    # - name: Restore NuGet packages
+    #   run: nuget restore ${{ env.SOLUTION_NAME }}
+
+    # 使用 MSBuild 进行还原，这对于 UWP/PackageReference 项目是必须的
+    # 关键修改：必须在此处添加 /p:Platform=x64，否则后续构建找不到 x64 的依赖
+    - name: Restore NuGet packages
+      run: msbuild ${{ env.SOLUTION_NAME }} /t:Restore /p:Configuration=Release /p:Platform=x64
+
+    # 关键步骤：从 Secret 解码证书并保存为临时文件
+    - name: Decode the Pfx Certificate
+      id: write_file
+      run: |
+        $pfx_cert_byte = [System.Convert]::FromBase64String("${{ secrets.PFX_BASE64 }}")
+        $certificatePath = Join-Path -Path $env:GITHUB_WORKSPACE -ChildPath "GitHubActionsWorkflow.pfx"
+        [IO.File]::WriteAllBytes($certificatePath, $pfx_cert_byte)
+        echo "CERT_PATH=$certificatePath" >> $env:GITHUB_ENV
+
+    # 构建并打包
+    # /p:AppxBundle=Always: 总是生成应用包
+    # /p:UapAppxPackageBuildMode=SideloadOnly: 生成旁加载包 (如果是发布到商店请改为 StoreUpload)
+    # /p:PackageCertificateKeyFile: 指向我们刚刚生成的临时证书
+    - name: Build and Package (x64)
+      run: |
+        msbuild ${{ env.SOLUTION_NAME }} /t:Rebuild /p:Configuration=Release /p:Platform=x64 /p:AppxBundle=Always /p:AppxBundlePlatforms="x64" /p:UapAppxPackageBuildMode=SideloadOnly /p:PackageCertificateKeyFile="${{ env.CERT_PATH }}" /p:PackageCertificatePassword="${{ secrets.PFX_PASSWORD }}"
+
+    # 删除临时证书文件（出于安全考虑，虽然 Runner 销毁后也会消失）
+    - name: Remove the Pfx
+      if: always()
+      run: |
+        if (Test-Path "${{ env.CERT_PATH }}") {
+            Remove-Item "${{ env.CERT_PATH }}"
+        }
+
+    # 上传构建产物
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: XunkongWidget-Release-x64
+        path: ${{ env.OUTPUT_DIR }}
+        if-no-files-found: error
