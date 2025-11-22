@@ -282,7 +282,7 @@ namespace Xunkong.Widget.Hoyolab
         /// <returns></returns>
         public async Task<DailyNoteInfo> GetDailyNoteAsync(GenshinRoleInfo role, CancellationToken? cancellationToken = null)
         {
-            var url = $"https://api-takumi-record.mihoyo.com/game_record/app/genshin/api/dailyNote?server={role.Region}&role_id={role.Uid}";
+            var url = $"https://api-takumi-record.example.com/game_record/app/genshin/api/dailyNote?server={role.Region}&role_id={role.Uid}";
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add(Cookie, role.Cookie);
             request.Headers.Add(DS, DynamicSecret.CreateSecret2(url));
